@@ -1,0 +1,17 @@
+{
+  "name": "Ariti Temesgen Wayu - Software Developer Portfolio",
+  "short_name": "Ariti Portfolio",
+  "description": "Full-Stack Software Developer & Systems Builder based in Ethiopia.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#2563eb",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
