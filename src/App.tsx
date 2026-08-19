@@ -22,15 +22,12 @@ export default function App() {
   const [preselectedService, setPreselectedService] = useState<string | undefined>(undefined);
 
   const handleNavigate = (sectionId: string) => {
-    if (activeDetailProject) {
-      setActiveDetailProject(null);
-    }
+    if (activeDetailProject) setActiveDetailProject(null);
     setActiveSection(sectionId);
     setTimeout(() => {
       const element = document.getElementById(sectionId);
       if (element) {
-        const yOffset = -80; // Account for fixed navbar height
-        const y = element.getBoundingClientRect().top + window.pageYOffset + yOffset;
+        const y = element.getBoundingClientRect().top + window.pageYOffset - 80;
         window.scrollTo({ top: y, behavior: 'smooth' });
       }
     }, 10);
@@ -53,19 +50,10 @@ export default function App() {
           <SEOHead
             title={`${activeDetailProject.title} Case Study | Ariti Temesgen Wayu`}
             description={`${activeDetailProject.title}: ${activeDetailProject.caseStudy.valueProposition}`}
-            canonical={`https://arititemesgen.dev/projects/${activeDetailProject.id}`}
+            canonical={`https://arititemesgen.com/projects/${activeDetailProject.id}`}
             ogImage={activeDetailProject.coverImage}
           />
-          <ProjectDetailPage
-            project={activeDetailProject}
-            onBack={() => setActiveDetailProject(null)}
-            onSelectProject={(project) => setActiveDetailProject(project)}
-            onContactClick={(service) => {
-              setActiveDetailProject(null);
-              if (service) setPreselectedService(service);
-              setTimeout(() => handleNavigate('contact'), 50);
-            }}
-          />
+          <ProjectDetailPage project={activeDetailProject} onBack={() => setActiveDetailProject(null)} onSelectProject={(project) => setActiveDetailProject(project)} onContactClick={(service) => { setActiveDetailProject(null); if (service) setPreselectedService(service); setTimeout(() => handleNavigate('contact'), 50); }} />
           <Footer onNavigate={handleNavigate} />
         </div>
       </ProfilePhotoProvider>
@@ -75,17 +63,8 @@ export default function App() {
   return (
     <ProfilePhotoProvider>
       <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 selection:bg-blue-500 selection:text-white transition-colors duration-200 flex flex-col font-sans">
-        
-        {/* Dynamic SEO & OpenGraph Head */}
         <SEOHead />
-
-        {/* Sticky Glass Navbar */}
-        <Navbar
-          activeSection={activeSection}
-          onNavigate={handleNavigate}
-        />
-
-        {/* Main Page Layout Sections */}
+        <Navbar activeSection={activeSection} onNavigate={handleNavigate} />
         <main className="flex-grow">
           <HeroSection onNavigate={handleNavigate} />
           <ProjectsSection onOpenCaseStudy={(project) => setActiveDetailProject(project)} />
@@ -96,24 +75,9 @@ export default function App() {
           <ResumeSection onContactClick={() => handleNavigate('contact')} />
           <ContactSection preselectedService={preselectedService} />
         </main>
-
-        {/* Footer */}
         <Footer onNavigate={handleNavigate} />
-
-        {/* Interactive Full Case Study Modal */}
-        <CaseStudyModal
-          project={modalCaseStudy}
-          onClose={() => setModalCaseStudy(null)}
-          onOpenFullPage={handleOpenDetailProject}
-          onContactClick={(service) => {
-            setModalCaseStudy(null);
-            if (service) setPreselectedService(service);
-            handleNavigate('contact');
-          }}
-        />
-
+        <CaseStudyModal project={modalCaseStudy} onClose={() => setModalCaseStudy(null)} onOpenFullPage={handleOpenDetailProject} onContactClick={(service) => { setModalCaseStudy(null); if (service) setPreselectedService(service); handleNavigate('contact'); }} />
       </div>
     </ProfilePhotoProvider>
   );
 }
-
