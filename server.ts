@@ -68,10 +68,9 @@ async function startServer() {
     res.json({ status: 'ok', developer: 'Ariti Temesgen Wayu', timestamp: new Date().toISOString(), environment: process.env.NODE_ENV || 'development' });
   });
 
-  // Profile photos are public read-only assets. Mutation endpoints are intentionally disabled.
-  // This prevents anonymous website visitors from replacing or deleting the owner's photo.
+  // Public users may read the profile photo, but profile-photo mutations are owner-only and disabled here.
   app.use('/api/profile-photo', (req: Request, res: Response, next: NextFunction) => {
-    if (req.method === 'POST' || req.method === 'DELETE' || req.method === 'PUT' || req.method === 'PATCH') {
+    if (['POST', 'DELETE', 'PUT', 'PATCH'].includes(req.method)) {
       res.status(403).json({ error: 'Profile photo changes are restricted to the site owner.' });
       return;
     }
@@ -111,7 +110,6 @@ async function startServer() {
     } else res.redirect(DEFAULT_PHOTO_PATH);
   });
 
-  // Contact Form Submission Endpoint with Resend Email Integration
   app.post('/api/contact', async (req: Request, res: Response) => {
     const clientIp = req.ip || req.headers['x-forwarded-for'] || 'unknown';
     const ipKey = String(clientIp);
@@ -141,8 +139,6 @@ async function startServer() {
       additionalInfo: additionalInfo && String(additionalInfo).trim() ? String(additionalInfo).trim().slice(0, 1000) : 'None provided',
       receivedAt: new Date().toISOString()
     };
-    console.log('[LEAD RECORD CREATED]', JSON.stringify(leadRecord, null, 2));
-
     const emailBodyText = `NEW PROJECT INQUIRY\n\nName: ${leadRecord.name}\nEmail: ${leadRecord.email}\nCompany: ${leadRecord.company}\nProject type: ${leadRecord.serviceType}\nBudget: ${leadRecord.budget}\nTimeline: ${leadRecord.timeline}\n\nProject description:\n${leadRecord.message}\n\nAdditional information:\n${leadRecord.additionalInfo}`;
     const isProduction = process.env.NODE_ENV === 'production';
     const resendApiKey = process.env.RESEND_API_KEY;
@@ -160,7 +156,7 @@ async function startServer() {
     res.status(200).json({ success: true, message: `Thank you ${leadRecord.name}. Your message has been sent successfully! Ariti will reply to ${leadRecord.email} within 24 hours.`, referenceId: leadRecord.id });
   });
 
-  // Canonical production sitemap. Do not fall back to the old .dev domain.
+  // Canonical production sitemap: every URL belongs to the verified .com property.
   app.get('/sitemap.xml', (_req: Request, res: Response) => {
     const baseUrl = 'https://arititemesgen.com';
     const today = new Date().toISOString().split('T')[0];
