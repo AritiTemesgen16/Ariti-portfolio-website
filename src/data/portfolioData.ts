@@ -1,4 +1,5 @@
 import { Project, SkillCategory, Service, ExperienceItem } from '../types';
+import defaultProfileImg from '../assets/images/ariti_actual_white_suit_studio_1786201703704.jpg';
 
 export const PROFILE = {
   name: "Ariti Temesgen Wayu",
@@ -6,7 +7,7 @@ export const PROFILE = {
   academicQualification: "Computer Science & Management Graduate",
   tagline: "Building scalable, high-performance web applications and digital systems designed for real-world reliability.",
   location: "Addis Ababa, Ethiopia",
-  profileImage: "/src/assets/images/ariti_actual_white_suit_studio_1786201703704.jpg",
+  profileImage: defaultProfileImg,
   education: {
     degree: "Computer Science & Management Graduate",
     degrees: [

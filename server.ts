@@ -25,13 +25,69 @@ function ensureUploadsDirectory() {
 function readManifest(): ProfilePhotoManifest {
   try {
     ensureUploadsDirectory();
+
+    // 1. Check if manifest.json exists and points to a valid file
     if (fs.existsSync(MANIFEST_PATH)) {
       const data = fs.readFileSync(MANIFEST_PATH, 'utf-8');
-      return JSON.parse(data);
+      const parsed = JSON.parse(data);
+      if (parsed && parsed.activeFilename) {
+        const activePath = path.join(UPLOADS_DIR, parsed.activeFilename);
+        if (fs.existsSync(activePath) && fs.statSync(activePath).size > 0) {
+          return parsed;
+        }
+      }
+      // If manifest explicitly records activeFilename: null and no files on disk, return it
+      if (parsed && parsed.activeFilename === null) {
+        return parsed;
+      }
+    }
+
+    // 2. Self-Healing Auto-Recovery: Scan directory for any uploaded custom image files
+    if (fs.existsSync(UPLOADS_DIR)) {
+      const files = fs.readdirSync(UPLOADS_DIR)
+        .filter(f => f.startsWith('profile_') && !f.endsWith('.json'))
+        .filter(f => {
+          try {
+            return fs.statSync(path.join(UPLOADS_DIR, f)).size > 0;
+          } catch {
+            return false;
+          }
+        })
+        .map(f => {
+          const stats = fs.statSync(path.join(UPLOADS_DIR, f));
+          return {
+            filename: f,
+            mtime: stats.mtimeMs,
+            size: stats.size,
+          };
+        })
+        .sort((a, b) => b.mtime - a.mtime);
+
+      if (files.length > 0) {
+        const latest = files[0];
+        const ext = path.extname(latest.filename).toLowerCase();
+        const mimeMap: Record<string, string> = {
+          '.jpg': 'image/jpeg',
+          '.jpeg': 'image/jpeg',
+          '.png': 'image/png',
+          '.webp': 'image/webp',
+          '.gif': 'image/gif',
+        };
+        const recoveredManifest: ProfilePhotoManifest = {
+          activeFilename: latest.filename,
+          originalName: 'custom_profile_photo',
+          mimeType: mimeMap[ext] || 'image/jpeg',
+          updatedAt: Math.floor(latest.mtime) || Date.now(),
+        };
+        writeManifest(recoveredManifest);
+        console.log(`[PROFILE PHOTO AUTO-RECOVERY] Synced active profile photo from disk: ${latest.filename}`);
+        return recoveredManifest;
+      }
     }
   } catch (err) {
     console.error('[PROFILE PHOTO MANIFEST READ ERROR]', err);
   }
+
   return {
     activeFilename: null,
     originalName: null,
@@ -76,10 +132,11 @@ async function startServer() {
 
   // Profile Photo API Routes (Single Source of Truth)
   app.get('/api/profile-photo/active', (_req: Request, res: Response) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     const manifest = readManifest();
     if (manifest.activeFilename) {
       const filePath = path.join(UPLOADS_DIR, manifest.activeFilename);
-      if (fs.existsSync(filePath)) {
+      if (fs.existsSync(filePath) && fs.statSync(filePath).size > 0) {
         res.json({
           success: true,
           url: `/api/profile-photo/image?t=${manifest.updatedAt}`,
@@ -91,26 +148,30 @@ async function startServer() {
     }
     res.json({
       success: true,
-      url: DEFAULT_PHOTO_PATH,
+      url: `/api/profile-photo/image?default=1`,
       isCustom: false,
       updatedAt: 0
     });
   });
 
-  app.get('/api/profile-photo/image', (_req: Request, res: Response) => {
+  app.get('/api/profile-photo/image', (req: Request, res: Response) => {
+    const isExplicitDefault = req.query.default === '1';
     const manifest = readManifest();
-    if (manifest.activeFilename) {
+
+    if (!isExplicitDefault && manifest.activeFilename) {
       const filePath = path.join(UPLOADS_DIR, manifest.activeFilename);
-      if (fs.existsSync(filePath)) {
+      if (fs.existsSync(filePath) && fs.statSync(filePath).size > 0) {
         res.setHeader('Content-Type', manifest.mimeType || 'image/jpeg');
-        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        res.setHeader('Cache-Control', 'public, max-age=86400, must-revalidate');
         res.sendFile(filePath);
         return;
       }
     }
+
     const defaultDiskPath = path.join(process.cwd(), 'src/assets/images/ariti_actual_white_suit_studio_1786201703704.jpg');
     if (fs.existsSync(defaultDiskPath)) {
       res.setHeader('Content-Type', 'image/jpeg');
+      res.setHeader('Cache-Control', 'public, max-age=86400, must-revalidate');
       res.sendFile(defaultDiskPath);
     } else {
       res.redirect(DEFAULT_PHOTO_PATH);
@@ -167,18 +228,21 @@ async function startServer() {
         return;
       }
 
-      // STEP 2: Explicitly DELETE previous asset file from persistent storage
-      const previousManifest = readManifest();
-      if (previousManifest.activeFilename && previousManifest.activeFilename !== newFilename) {
-        const oldFilePath = path.join(UPLOADS_DIR, previousManifest.activeFilename);
-        if (fs.existsSync(oldFilePath)) {
-          try {
-            fs.unlinkSync(oldFilePath);
-            console.log(`[PERSISTENT STORAGE] Deleted old profile photo asset: ${previousManifest.activeFilename}`);
-          } catch (unlinkErr) {
-            console.error(`[PERSISTENT STORAGE CLEANUP WARNING] Could not delete file ${oldFilePath}:`, unlinkErr);
+      // STEP 2: Clean up previous custom profile photo files in UPLOADS_DIR
+      try {
+        const existingFiles = fs.readdirSync(UPLOADS_DIR);
+        for (const file of existingFiles) {
+          if (file.startsWith('profile_') && file !== newFilename && !file.endsWith('.json')) {
+            try {
+              fs.unlinkSync(path.join(UPLOADS_DIR, file));
+              console.log(`[PERSISTENT STORAGE] Removed previous profile photo asset: ${file}`);
+            } catch (unlinkErr) {
+              console.warn(`[PERSISTENT STORAGE CLEANUP WARNING] Could not remove ${file}:`, unlinkErr);
+            }
           }
         }
+      } catch (scanErr) {
+        console.warn('[PERSISTENT STORAGE SCAN WARNING]', scanErr);
       }
 
       // STEP 3: Update manifest record to point EXCLUSIVELY to new asset
@@ -190,7 +254,7 @@ async function startServer() {
       };
       writeManifest(newManifest);
 
-      console.log(`[PROFILE PHOTO REPLACED] Active asset: ${newFilename}`);
+      console.log(`[PROFILE PHOTO SAVED] Active asset: ${newFilename}`);
 
       res.status(200).json({
         success: true,
@@ -208,17 +272,21 @@ async function startServer() {
 
   app.delete('/api/profile-photo', (_req: Request, res: Response) => {
     try {
-      const manifest = readManifest();
-      if (manifest.activeFilename) {
-        const oldFilePath = path.join(UPLOADS_DIR, manifest.activeFilename);
-        if (fs.existsSync(oldFilePath)) {
-          try {
-            fs.unlinkSync(oldFilePath);
-            console.log(`[PERSISTENT STORAGE] Deleted custom profile photo asset: ${manifest.activeFilename}`);
-          } catch (unlinkErr) {
-            console.error('[PERSISTENT STORAGE WARNING] Could not delete custom file:', unlinkErr);
+      ensureUploadsDirectory();
+      try {
+        const existingFiles = fs.readdirSync(UPLOADS_DIR);
+        for (const file of existingFiles) {
+          if (file.startsWith('profile_') && !file.endsWith('.json')) {
+            try {
+              fs.unlinkSync(path.join(UPLOADS_DIR, file));
+              console.log(`[PERSISTENT STORAGE] Deleted custom profile photo asset: ${file}`);
+            } catch (unlinkErr) {
+              console.warn('[PERSISTENT STORAGE WARNING] Could not delete custom file:', unlinkErr);
+            }
           }
         }
+      } catch (scanErr) {
+        console.warn('[PERSISTENT STORAGE SCAN WARNING]', scanErr);
       }
 
       const timestamp = Date.now();
@@ -232,7 +300,7 @@ async function startServer() {
       res.status(200).json({
         success: true,
         message: 'Profile photo reset to default.',
-        url: DEFAULT_PHOTO_PATH,
+        url: `/api/profile-photo/image?default=1&t=${timestamp}`,
         isCustom: false,
         updatedAt: timestamp
       });

@@ -11,11 +11,40 @@ interface ProfilePhotoContextType {
   refreshPhoto: () => Promise<void>;
 }
 
+const STORAGE_KEY = 'ariti_profile_photo_state';
+
 const ProfilePhotoContext = createContext<ProfilePhotoContextType | undefined>(undefined);
 
 export const ProfilePhotoProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [photoUrl, setPhotoUrl] = useState<string>(PROFILE.profileImage);
-  const [isCustom, setIsCustom] = useState<boolean>(false);
+  // Initialize state with cached custom photo if available, otherwise default profile image
+  const [photoUrl, setPhotoUrl] = useState<string>(() => {
+    try {
+      const cached = localStorage.getItem(STORAGE_KEY);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed?.isCustom && parsed?.url) {
+          return parsed.url;
+        }
+      }
+    } catch {
+      // ignore localStorage parse error
+    }
+    return PROFILE.profileImage;
+  });
+
+  const [isCustom, setIsCustom] = useState<boolean>(() => {
+    try {
+      const cached = localStorage.getItem(STORAGE_KEY);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        return Boolean(parsed?.isCustom);
+      }
+    } catch {
+      // ignore
+    }
+    return false;
+  });
+
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -23,13 +52,28 @@ export const ProfilePhotoProvider: React.FC<{ children: React.ReactNode }> = ({ 
     try {
       setIsLoading(true);
       setError(null);
-      const res = await fetch('/api/profile-photo/active');
+      const res = await fetch(`/api/profile-photo/active?_t=${Date.now()}`);
       if (res.ok) {
         const data = await res.json();
         if (data.url) {
+          const custom = Boolean(data.isCustom);
           setPhotoUrl(data.url);
-          setIsCustom(Boolean(data.isCustom));
+          setIsCustom(custom);
           PROFILE.profileImage = data.url;
+
+          if (custom) {
+            try {
+              localStorage.setItem(STORAGE_KEY, JSON.stringify({ isCustom: true, url: data.url }));
+            } catch {
+              // ignore
+            }
+          } else {
+            try {
+              localStorage.removeItem(STORAGE_KEY);
+            } catch {
+              // ignore
+            }
+          }
         }
       }
     } catch (err) {
@@ -48,7 +92,7 @@ export const ProfilePhotoProvider: React.FC<{ children: React.ReactNode }> = ({ 
       setError(null);
 
       // Client-side MIME validation
-      const allowedMimes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+      const allowedMimes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
       if (!allowedMimes.includes(file.type.toLowerCase())) {
         return {
           success: false,
@@ -97,6 +141,12 @@ export const ProfilePhotoProvider: React.FC<{ children: React.ReactNode }> = ({ 
       setIsCustom(true);
       PROFILE.profileImage = result.url;
 
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ isCustom: true, url: result.url }));
+      } catch {
+        // ignore
+      }
+
       return {
         success: true,
         message: result.message || 'Profile photo successfully replaced.'
@@ -117,9 +167,17 @@ export const ProfilePhotoProvider: React.FC<{ children: React.ReactNode }> = ({ 
       const result = await response.json();
 
       if (response.ok && result.success) {
-        setPhotoUrl(result.url);
+        const fallbackUrl = result.url || PROFILE.profileImage;
+        setPhotoUrl(fallbackUrl);
         setIsCustom(false);
-        PROFILE.profileImage = result.url;
+        PROFILE.profileImage = fallbackUrl;
+
+        try {
+          localStorage.removeItem(STORAGE_KEY);
+        } catch {
+          // ignore
+        }
+
         return { success: true, message: 'Profile photo reset to default.' };
       }
 
