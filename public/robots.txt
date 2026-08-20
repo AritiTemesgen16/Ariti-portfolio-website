@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://arititemesgen.dev/sitemap.xml
+Sitemap: https://arititemesgen.com/sitemap.xml
